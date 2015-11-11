@@ -23,7 +23,6 @@ import json
 import arrow
 import botocore.session
 
-
 class Operation(object):
     def __init__(self, context):
         self.session = botocore.session.get_session()
@@ -75,7 +74,7 @@ class Operation(object):
                 sys.exit(1)
         return self._layer_id
 
-    def layer_at_once(self, comment, exclude_hosts=None):
+    def layer_at_once(self, comment, exclude_hosts=None, custom_json={}):
         all_instances = self._make_api_call('opsworks', 'DescribeInstances', layer_id=self.layer_id)
 
         if exclude_hosts is None:
@@ -85,9 +84,9 @@ class Operation(object):
         for each in all_instances['Instances']:
             if each['Status'] == 'online' and each['Hostname'] not in exclude_hosts:
                 deployment_instance_ids.append(each['InstanceId'])
-        self._deploy_to(instance_ids=deployment_instance_ids, name="{0} instances".format(self.layer_name), comment=comment)
+        self._deploy_to(instance_ids=deployment_instance_ids, name="{0} instances".format(self.layer_name), comment=comment, custom_json=custom_json)
 
-    def layer_rolling(self, comment):
+    def layer_rolling(self, comment, custom_json={}):
         load_balancer_name = self._get_opsworks_elb_name()
 
         if load_balancer_name is not None:
@@ -103,9 +102,9 @@ class Operation(object):
             instance_id = each['InstanceId']
             ec2_instance_id = each['Ec2InstanceId']
 
-            self._deploy_to(instance_ids=[instance_id], name=hostname, comment=comment, load_balancer_name=load_balancer_name, ec2_instance_id=ec2_instance_id)
+            self._deploy_to(instance_ids=[instance_id], name=hostname, comment=comment, load_balancer_name=load_balancer_name, ec2_instance_id=ec2_instance_id, custom_json=custom_json)
 
-    def instances_at_once(self, host_names, comment):
+    def instances_at_once(self, host_names, comment, custom_json={}):
         all_instances = self._make_api_call('opsworks', 'DescribeInstances', stack_id=self.stack_id)
 
         deployment_instance_ids = []
@@ -113,7 +112,7 @@ class Operation(object):
             if each['Status'] == 'online' and each['Hostname'] in host_names:
                 deployment_instance_ids.append(each['InstanceId'])
 
-        self._deploy_to(instance_ids=deployment_instance_ids, name=", ".join(host_names), comment=comment)
+        self._deploy_to(instance_ids=deployment_instance_ids, name=", ".join(host_names), comment=comment, custom_json=custom_json)
 
     def post_elb_registration(self, hostname, load_balancer_name):
         describe_result = self._make_api_call('elb', 'DescribeLoadBalancers', load_balancer_names=[load_balancer_name])
@@ -139,7 +138,7 @@ class Operation(object):
         for pre_deploy in self.pre_deployment_hooks:
             pre_deploy(**kwargs)
 
-        arguments = self._create_deployment_arguments(kwargs['instance_ids'], kwargs['comment'])
+        arguments = self._create_deployment_arguments(kwargs['instance_ids'], kwargs['comment'], kwargs['custom_json'])
         deployment = self._make_api_call('opsworks', 'CreateDeployment', **arguments)
 
         deployment_id = deployment['DeploymentId']
@@ -150,7 +149,7 @@ class Operation(object):
         for post_deploy in self.post_deployment_hooks:
             post_deploy(**kwargs)
 
-    def _create_deployment_arguments(self, instance_ids, comment):
+    def _create_deployment_arguments(self, instance_ids, comment, custom_json):
         raise NotImplemented('Method must be implemented in child class')
 
     def _poll_deployment_complete(self, deployment_id):
@@ -256,7 +255,6 @@ class Operation(object):
         log("Error occurred calling {0} - {1} - Status {2} Message {3}".format(response.url, api_operation, response.status_code, response.text))
         sys.exit(1)
 
-
 class Update(Operation):
     """
     Used to issue an Update Dependencies operation within OpsWorks
@@ -281,12 +279,10 @@ class Update(Operation):
             log("Sleeping {0} seconds to allow {1} to reboot (if required)".format(self.reboot_delay, kwargs['name']))
             time.sleep(self.reboot_delay)
 
-    def _create_deployment_arguments(self, instance_ids, comment):
-        custom_json = {
-            'dependencies': {
-                'allow_reboot': self.allow_reboot
-            }
-        }
+    def _create_deployment_arguments(self, instance_ids, comment, custom_json={}):
+		
+		custom_json['dependencies']['allow_reboot'] = self.allow_reboot
+		
         if self.amazon_linux_release is not None:
             custom_json['dependencies']['os_release_version'] = self.amazon_linux_release
 
@@ -297,7 +293,6 @@ class Update(Operation):
             'comment': comment,
             'custom_json': json.dumps(custom_json)
         }
-
 
 class Deploy(Operation):
     """
@@ -329,13 +324,15 @@ class Deploy(Operation):
 
         return self._application_id
 
-    def _create_deployment_arguments(self, instance_ids, comment):
+    def _create_deployment_arguments(self, instance_ids, comment, custom_json={}):
+	
         return {
             'stack_id': self.stack_id,
             'app_id': self.application_id,
             'instance_ids': instance_ids,
             'command': {'Name': self.command},
-            'comment': comment
+            'comment': comment,
+			'custom_json': json.dumps(custom_json)
         }
 
 
@@ -381,13 +378,14 @@ def deploy(ctx, application):
 @click.option('--exclude-hosts', '-x', default=None, help='Host names to exclude from deployment (comma separated list)')
 @click.option('--comment', help='Deployment message')
 @click.option('--timeout', default=None, help='Deployment timeout')
+@click.option('--custom-json', default=None, help='Custom JSON')
 @click.pass_context
-def all(ctx, stack_name, layer_name, exclude_hosts, comment, timeout):
+def all(ctx, stack_name, layer_name, exclude_hosts, comment, timeout, custom_json):
     operation = ctx.obj['OPERATION']
     operation.init(stack_name=stack_name, layer_name=layer_name, timeout=timeout)
     if exclude_hosts is not None:
         exclude_hosts = exclude_hosts.split(',')
-    operation.layer_at_once(comment=comment, exclude_hosts=exclude_hosts)
+    operation.layer_at_once(comment=comment, exclude_hosts=exclude_hosts, custom_json=custom_json)
 
 
 @cli.command(help='Rolling execution of operation to all hosts in the layer')
@@ -395,11 +393,12 @@ def all(ctx, stack_name, layer_name, exclude_hosts, comment, timeout):
 @click.option('--layer-name', type=click.STRING, required=True, help='Layer to deploy application to')
 @click.option('--comment', help='Deployment message')
 @click.option('--timeout', default=None, help='Deployment timeout')
+@click.option('--custom-json', default=None, help='Custom JSON')
 @click.pass_context
 def rolling(ctx, stack_name, layer_name, comment, timeout):
     operation = ctx.obj['OPERATION']
     operation.init(stack_name=stack_name, layer_name=layer_name, timeout=timeout)
-    operation.layer_rolling(comment=comment)
+    operation.layer_rolling(comment=comment, custom_json=custom_json)
 
 
 @cli.command(help='Execute operation on specific hosts')
@@ -407,12 +406,13 @@ def rolling(ctx, stack_name, layer_name, comment, timeout):
 @click.option('--hosts', '-H', type=click.STRING, required=True, help='Host names to deploy application to (comma separated list)')
 @click.option('--comment', help='Deployment message')
 @click.option('--timeout', default=None, help='Deployment timeout')
+@click.option('--custom-json', default=None, help='Custom JSON')
 @click.pass_context
 def instances(ctx, stack_name, hosts, comment, timeout):
     operation = ctx.obj['OPERATION']
     operation.init(stack_name=stack_name, timeout=timeout)
     hosts = hosts.split(',')
-    operation.instances_at_once(comment=comment, host_names=hosts)
+    operation.instances_at_once(comment=comment, host_names=hosts, custom_json=custom_json)
 
 
 if __name__ == '__main__':
