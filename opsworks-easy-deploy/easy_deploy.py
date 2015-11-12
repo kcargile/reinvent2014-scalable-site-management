@@ -23,6 +23,7 @@ import json
 import arrow
 import botocore.session
 
+
 class Operation(object):
     def __init__(self, context):
         self.session = botocore.session.get_session()
@@ -255,6 +256,7 @@ class Operation(object):
         log("Error occurred calling {0} - {1} - Status {2} Message {3}".format(response.url, api_operation, response.status_code, response.text))
         sys.exit(1)
 
+
 class Update(Operation):
     """
     Used to issue an Update Dependencies operation within OpsWorks
@@ -280,9 +282,9 @@ class Update(Operation):
             time.sleep(self.reboot_delay)
 
     def _create_deployment_arguments(self, instance_ids, comment, custom_json={}):
-		
-		custom_json['dependencies']['allow_reboot'] = self.allow_reboot
-		
+
+        custom_json['dependencies']['allow_reboot'] = self.allow_reboot
+
         if self.amazon_linux_release is not None:
             custom_json['dependencies']['os_release_version'] = self.amazon_linux_release
 
@@ -293,6 +295,7 @@ class Update(Operation):
             'comment': comment,
             'custom_json': json.dumps(custom_json)
         }
+
 
 class Deploy(Operation):
     """
@@ -325,14 +328,14 @@ class Deploy(Operation):
         return self._application_id
 
     def _create_deployment_arguments(self, instance_ids, comment, custom_json={}):
-	
+
         return {
             'stack_id': self.stack_id,
             'app_id': self.application_id,
             'instance_ids': instance_ids,
             'command': {'Name': self.command},
             'comment': comment,
-			'custom_json': json.dumps(custom_json)
+            'custom_json': json.dumps(custom_json)
         }
 
 
