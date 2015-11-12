@@ -395,7 +395,7 @@ def all(ctx, stack_name, layer_name, exclude_hosts, comment, timeout, custom_jso
 @click.option('--timeout', default=None, help='Deployment timeout')
 @click.option('--custom-json', default=None, help='Custom JSON')
 @click.pass_context
-def rolling(ctx, stack_name, layer_name, comment, timeout):
+def rolling(ctx, stack_name, layer_name, comment, timeout, custom_json):
     operation = ctx.obj['OPERATION']
     operation.init(stack_name=stack_name, layer_name=layer_name, timeout=timeout)
     operation.layer_rolling(comment=comment, custom_json=custom_json)
@@ -408,7 +408,7 @@ def rolling(ctx, stack_name, layer_name, comment, timeout):
 @click.option('--timeout', default=None, help='Deployment timeout')
 @click.option('--custom-json', default=None, help='Custom JSON')
 @click.pass_context
-def instances(ctx, stack_name, hosts, comment, timeout):
+def instances(ctx, stack_name, hosts, comment, timeout, custom_json):
     operation = ctx.obj['OPERATION']
     operation.init(stack_name=stack_name, timeout=timeout)
     hosts = hosts.split(',')
